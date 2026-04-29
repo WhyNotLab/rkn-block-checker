@@ -1,6 +1,6 @@
 # RKN Block Checker
 
-[![CI](https://github.com/yourname/rkn-block-checker/actions/workflows/ci.yml/badge.svg)](https://github.com/yourname/rkn-block-checker/actions/workflows/ci.yml)
+[![CI](https://github.com/MayersScott/rkn-block-checker/actions/workflows/ci.yml/badge.svg)](https://github.com/MayersScott/rkn-block-checker/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
@@ -66,7 +66,7 @@ Blacklist (RKN-restricted)
 Python 3.10+.
 
 ```bash
-git clone https://github.com/yourname/rkn-block-checker.git
+git clone https://github.com/MayersScott/rkn-block-checker.git
 cd rkn-block-checker
 pip install -r requirements.txt
 python -m rkn_checker
