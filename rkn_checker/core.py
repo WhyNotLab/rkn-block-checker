@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import logging
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Iterator
 from urllib.parse import urlparse
 
 import requests
@@ -109,13 +110,42 @@ def check_url(name: str, url: str, timeout: float = 5.0) -> CheckResult:
     return res
 
 
+def iter_check_urls(
+    urls: dict[str, str],
+    max_workers: int = DEFAULT_WORKERS,
+    timeout: float = 5.0,
+) -> Iterator[CheckResult]:
+    """Yield CheckResult objects as soon as each probe finishes.
+
+    Order is *not* the input order — it's the completion order. Callers that
+    need the original order should sort by name (or look it up) after
+    consuming the iterator. Callers that just want to print results live as
+    they arrive can iterate directly.
+    """
+    if not urls:
+        return
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = [
+            pool.submit(check_url, name, url, timeout) for name, url in urls.items()
+        ]
+        for fut in as_completed(futures):
+            yield fut.result()
+
+
 def check_urls_parallel(
     urls: dict[str, str],
     max_workers: int = DEFAULT_WORKERS,
     timeout: float = 5.0,
 ) -> list[CheckResult]:
-    items = list(urls.items())
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        return list(
-            pool.map(lambda kv: check_url(kv[0], kv[1], timeout=timeout), items)
-        )
+    """Run all probes in parallel and return results in the original input order.
+
+    Backwards-compatible wrapper around iter_check_urls — used by the JSON
+    output path where streaming gives no benefit (the document has to be
+    emitted as a whole anyway).
+    """
+    name_order = list(urls.keys())
+    by_name = {
+        r.name: r
+        for r in iter_check_urls(urls, max_workers=max_workers, timeout=timeout)
+    }
+    return [by_name[name] for name in name_order if name in by_name]

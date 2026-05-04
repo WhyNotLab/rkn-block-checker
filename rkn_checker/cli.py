@@ -4,8 +4,10 @@ import argparse
 import json
 import logging
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from .core import check_urls_parallel, get_self_info
+from .core import check_url, get_self_info
+from .models import CheckResult
 from .output import print_header, print_result, print_section, print_summary
 from .targets import BLACK_URLS, WHITE_URLS
 
@@ -46,6 +48,52 @@ def _setup_logging(verbosity: int) -> None:
     )
 
 
+def _run_streaming(
+    run_white: bool,
+    run_black: bool,
+    workers: int,
+    timeout: float,
+) -> tuple[list[CheckResult], list[CheckResult]]:
+    """Run both groups in a single pool, print each result the moment it lands.
+
+    Whitelist results print first (in completion order, under the whitelist
+    section), then blacklist results (under the blacklist section). Both
+    groups are executing in parallel the whole time, so by the time the
+    whitelist section finishes printing, most of the blacklist is already
+    done — the blacklist section then drains nearly instantly.
+    """
+    white_results: list[CheckResult] = []
+    black_results: list[CheckResult] = []
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        white_futs = {
+            pool.submit(check_url, name, url, timeout): name
+            for name, url in (WHITE_URLS.items() if run_white else [])
+        }
+        black_futs = {
+            pool.submit(check_url, name, url, timeout): name
+            for name, url in (BLACK_URLS.items() if run_black else [])
+        }
+
+        if run_white:
+            print_section("Whitelist (should always work)")
+            for fut in as_completed(white_futs):
+                r = fut.result()
+                white_results.append(r)
+                print_result(r)
+                sys.stdout.flush()
+
+        if run_black:
+            print_section("Blacklist (RKN-restricted)")
+            for fut in as_completed(black_futs):
+                r = fut.result()
+                black_results.append(r)
+                print_result(r)
+                sys.stdout.flush()
+
+    return white_results, black_results
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     _setup_logging(args.verbose)
@@ -53,16 +101,18 @@ def main(argv: list[str] | None = None) -> int:
     run_white = not args.black_only
     run_black = not args.white_only
 
-    white_results = (
-        check_urls_parallel(WHITE_URLS, args.workers, args.timeout)
-        if run_white else []
-    )
-    black_results = (
-        check_urls_parallel(BLACK_URLS, args.workers, args.timeout)
-        if run_black else []
-    )
-
     if args.as_json:
+        # JSON mode collects everything before emitting one document — there's
+        # no streaming benefit since the consumer is parsing a single object.
+        from .core import check_urls_parallel
+        white_results = (
+            check_urls_parallel(WHITE_URLS, args.workers, args.timeout)
+            if run_white else []
+        )
+        black_results = (
+            check_urls_parallel(BLACK_URLS, args.workers, args.timeout)
+            if run_black else []
+        )
         payload = {
             "self_info": get_self_info(),
             "whitelist": [r.to_dict() for r in white_results],
@@ -72,15 +122,15 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.write("\n")
         return 0
 
-    print_header(get_self_info())
-    if run_white:
-        print_section("Whitelist (should always work)")
-        for r in white_results:
-            print_result(r)
-    if run_black:
-        print_section("Blacklist (RKN-restricted)")
-        for r in black_results:
-            print_result(r)
+    # Print the header first so the user immediately sees their IP/ISP
+    # while the per-target probes run in the background.
+    print_header(get_self_info(timeout=args.timeout))
+    sys.stdout.flush()
+
+    white_results, black_results = _run_streaming(
+        run_white, run_black, args.workers, args.timeout
+    )
+
     if run_white and run_black:
         print_summary(white_results, black_results)
 
