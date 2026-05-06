@@ -60,6 +60,12 @@ def check_url(name: str, url: str, timeout: float = 5.0) -> CheckResult:
             "(may indicate transparent DNS rewriting)"
         )
 
+    if res.sys_ip is not None and res.doh_ip is None:
+        res.notes.append(
+            "DoH lookup failed — control comparison unavailable, "
+            "DNS poisoning cannot be ruled out"
+        )
+
     res.tcp_ok, res.tcp_time_ms, res.tcp_error = network.check_tcp(
         host, timeout=timeout
     )
@@ -141,7 +147,7 @@ def check_url(name: str, url: str, timeout: float = 5.0) -> CheckResult:
         return res
 
     res.verdict = Verdict.OK
-    res.confidence = Confidence.HIGH
+    res.confidence = Confidence.MEDIUM if res.dns_mismatch else Confidence.HIGH
     return res
 
 
@@ -160,11 +166,20 @@ def iter_check_urls(
     if not urls:
         return
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = [
-            pool.submit(check_url, name, url, timeout) for name, url in urls.items()
-        ]
-        for fut in as_completed(futures):
-            yield fut.result()
+        futures_map: dict = {}
+        for name, url in urls.items():
+            fut = pool.submit(check_url, name, url, timeout)
+            futures_map[fut] = name
+        for fut in as_completed(futures_map):
+            try:
+                yield fut.result()
+            except Exception as e:
+                name = futures_map[fut]
+                logger.exception("unexpected error probing %s", name)
+                yield CheckResult(
+                    name=name, url="?", verdict=Verdict.UNKNOWN,
+                    notes=[f"unexpected error: {e}"],
+                )
 
 
 def check_urls_parallel(

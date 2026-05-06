@@ -39,6 +39,8 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="thread pool size for parallel checks (default: 10)")
     p.add_argument("-v", "--verbose", action="count", default=0,
                    help="increase log verbosity (-v info, -vv debug)")
+    p.add_argument("--no-self-info", dest="no_self_info", action="store_true",
+                   help="skip the external IP self-info lookup")
     return p
 
 
@@ -109,8 +111,16 @@ def _run_streaming(
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = _build_parser().parse_args(argv)
+    parser = _build_parser()
+    args = parser.parse_args(argv)
     _setup_logging(args.verbose)
+
+    if args.white_only and args.black_only:
+        parser.error("--white and --black are mutually exclusive")
+    if args.timeout <= 0:
+        parser.error("--timeout must be positive")
+    if args.workers <= 0:
+        parser.error("--workers must be positive")
 
     try:
         white_urls, black_urls = _resolve_lists(args.white_file, args.black_file)
@@ -131,8 +141,9 @@ def main(argv: list[str] | None = None) -> int:
             check_urls_parallel(black_urls, args.workers, args.timeout)
             if run_black else []
         )
+        self_info = get_self_info(timeout=args.timeout) if not args.no_self_info else None
         payload = {
-            "self_info": get_self_info(),
+            "self_info": self_info,
             "whitelist": [r.to_dict() for r in white_results],
             "blacklist": [r.to_dict() for r in black_results],
         }
@@ -140,7 +151,10 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.write("\n")
         return 0
     
-    print_header(get_self_info(timeout=args.timeout))
+    if not args.no_self_info:
+        print_header(get_self_info(timeout=args.timeout))
+    else:
+        print_header({})
     sys.stdout.flush()
 
     white_results, black_results = _run_streaming(

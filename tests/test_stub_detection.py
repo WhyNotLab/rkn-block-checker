@@ -17,13 +17,29 @@ class TestLooksLikeStub:
         body = "сайт заблокирован"
         assert looks_like_stub(body) is True
 
-    def test_detects_english_blocked_by(self):
-        body = "this resource is blocked by your provider"
+    def test_detects_english_blocked_by_roskomnadzor(self):
+        body = "this resource is blocked by roskomnadzor"
         assert looks_like_stub(body) is True
 
-    def test_detects_rkn_link(self):
-        body = "for more information visit rkn.gov.ru"
+    def test_detects_blocked_by_rkn(self):
+        body = "this resource is blocked by rkn"
         assert looks_like_stub(body) is True
+
+    def test_generic_blocked_by_does_not_match(self):
+        body = "this resource is blocked by your provider"
+        assert looks_like_stub(body) is False
+
+    def test_detects_rkn_register_link(self):
+        body = "for details see rkn.gov.ru/org/register"
+        assert looks_like_stub(body) is True
+
+    def test_bare_rkn_gov_ru_does_not_match(self):
+        body = "for more information visit rkn.gov.ru"
+        assert looks_like_stub(body) is False
+
+    def test_po_resheniu_removed_marker_does_not_match(self):
+        body = "по решению суда"
+        assert looks_like_stub(body) is False
 
     def test_detects_unified_registry_phrase(self):
         body = "сайт включён в единый реестр запрещённых ресурсов"

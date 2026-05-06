@@ -45,6 +45,8 @@ def check_tls(
         return False, None, None, "timeout"
     except ssl.SSLError as e:
         return False, None, None, f"SSLError: {e.reason or e}"
+    except ConnectionAbortedError:
+        return False, None, None, "connection reset during TLS"
     except ConnectionResetError:
         return False, None, None, "connection reset during TLS"
     except OSError as e:

@@ -54,6 +54,7 @@ class TestVerdictPath:
         r = _run_with(_patches(sys_ip="1.1.1.1", doh_ip="2.2.2.2"))
         assert r.dns_mismatch is True
         assert r.verdict == Verdict.OK
+        assert r.confidence == Confidence.MEDIUM
 
     def test_tcp_timeout_yields_timeout_verdict(self):
         r = _run_with(_patches(tcp=(False, None, "timeout")))
@@ -103,3 +104,16 @@ class TestVerdictPath:
         r = _run_with(_patches(http=probe))
         assert r.verdict == Verdict.OK
         assert r.confidence == Confidence.HIGH
+
+    def test_doh_failure_is_noted(self):
+        r = _run_with(_patches(sys_ip="1.2.3.4", doh_ip=None))
+        assert any("DoH lookup failed" in n for n in r.notes)
+
+    def test_doh_failure_continues_probing(self):
+        r = _run_with(_patches(sys_ip="1.2.3.4", doh_ip=None))
+        assert r.verdict == Verdict.OK
+
+    def test_dns_mismatch_ok_gets_medium_confidence(self):
+        r = _run_with(_patches(sys_ip="1.1.1.1", doh_ip="2.2.2.2"))
+        assert r.verdict == Verdict.OK
+        assert r.confidence == Confidence.MEDIUM

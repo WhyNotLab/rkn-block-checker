@@ -72,3 +72,18 @@ class TestParallelWrapperPreservesOrder:
         # Order in the returned list must match input order, even though
         # 'a' finished first internally.
         assert [r.name for r in results] == ["d", "c", "b", "a"]
+
+
+class TestExceptionHandling:
+    def test_unexpected_exception_yields_unknown_verdict(self):
+        from rkn_checker.models import CheckResult, Verdict
+
+        def _boom(name, url, timeout):
+            raise RuntimeError("kaboom")
+
+        urls = {"x": "https://x.example/"}
+        with patch("rkn_checker.core.check_url", side_effect=_boom):
+            results = list(iter_check_urls(urls, max_workers=1, timeout=1.0))
+        assert len(results) == 1
+        assert results[0].verdict == Verdict.UNKNOWN
+        assert "kaboom" in results[0].notes[0]

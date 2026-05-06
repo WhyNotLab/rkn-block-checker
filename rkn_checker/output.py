@@ -83,9 +83,11 @@ def print_result(r: CheckResult) -> None:
     tls = f"{r.tls_time_ms:.0f}ms" if r.tls_time_ms is not None else "-"
     plt = f"{r.plt_ms:.0f}ms" if r.plt_ms is not None else "-"
 
+    name_col = r.name[:14].ljust(14)
+    label_col = label[:22].ljust(22)
     print(
-        f"  {r.name:<14}"
-        f"{color}{label:<22}{C.RESET}"
+        f"  {name_col}"
+        f"{color}{label_col}{C.RESET}"
         f"{tcp:>8}{tls:>8}{plt:>8}  "
         f"{status:<6}"
     )
@@ -96,7 +98,11 @@ def print_result(r: CheckResult) -> None:
 def print_summary(white: list[CheckResult], black: list[CheckResult]) -> None:
     white_ok = sum(1 for r in white if r.verdict == Verdict.OK)
     black_ok = sum(1 for r in black if r.verdict == Verdict.OK)
-    black_blocked = sum(1 for r in black if r.verdict in BLOCKED_VERDICTS)
+    black_blocked = sum(
+        1 for r in black
+        if r.verdict in BLOCKED_VERDICTS and r.verdict != Verdict.TIMEOUT
+    )
+    black_timeout = sum(1 for r in black if r.verdict == Verdict.TIMEOUT)
     black_high_conf = sum(
         1 for r in black
         if r.verdict in BLOCKED_VERDICTS and r.confidence == Confidence.HIGH
@@ -109,11 +115,12 @@ def print_summary(white: list[CheckResult], black: list[CheckResult]) -> None:
     print(
         f"  Blacklist: {black_ok}/{len(black)} open, "
         f"{black_blocked}/{len(black)} blocked"
+        + (f", {black_timeout} timed out" if black_timeout else "")
     )
 
     color, verdict, conf_note = _summary_verdict(
         white_ok, len(white), black_ok, black_blocked, len(black),
-        black_high_conf,
+        black_high_conf, black_timeout,
     )
     print(f"\n  {color}{C.BOLD}→ {verdict}{C.RESET}")
     if conf_note:
@@ -136,6 +143,7 @@ def _summary_verdict(
     black_blocked: int,
     black_total: int,
     black_high_conf: int = 0,
+    black_timeout: int = 0,
 ) -> tuple[str, str, str]:
     """Return (color, verdict line, confidence note).
 
@@ -143,6 +151,8 @@ def _summary_verdict(
     particular whether the whitelist control is healthy enough for the
     blacklist signal to be trustworthy.
     """
+    effective_total = black_total - black_timeout
+
     if white_total > 0 and white_ok < white_total / 2:
         return (
             C.YELLOW,
@@ -151,7 +161,14 @@ def _summary_verdict(
             "baseline. Try a different network, or check the local connection.",
         )
 
-    if black_blocked == 0 and black_ok == black_total:
+    if effective_total <= 0:
+        return (
+            C.YELLOW,
+            "Inconclusive - all blacklist probes timed out.",
+            "Cannot determine blocking status when every probe times out.",
+        )
+
+    if black_blocked == 0 and black_ok == effective_total:
         return (
             C.GREEN,
             "Likely NOT in an RKN-blocked zone (or VPN is masking it).",
@@ -159,12 +176,12 @@ def _summary_verdict(
             "zone, or your VPN/proxy is intercepting the traffic.",
         )
 
-    if black_blocked >= black_total * 0.7:
-        if black_total > 0 and black_high_conf >= black_total * 0.5:
+    if black_blocked >= effective_total * 0.7:
+        if effective_total > 0 and black_high_conf >= effective_total * 0.5:
             return (
                 C.RED,
                 "Likely in an RKN-blocked zone (high confidence).",
-                f"{black_high_conf}/{black_total} blacklist failures match "
+                f"{black_high_conf}/{effective_total} blacklist failures match "
                 "high-confidence patterns (DNS poisoning confirmed by DoH, "
                 "HTTP 451, known stub-page markers).",
             )

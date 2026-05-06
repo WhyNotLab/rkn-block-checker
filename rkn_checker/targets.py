@@ -47,16 +47,16 @@ BLACK_URLS: dict[str, str] = {
 
 
 # Substrings that show up on ISP "this site is blocked" stub pages.
-# Body is lowercased before matching.
+# Matched against body[:2000].lower() in http.py.
 STUB_MARKERS: tuple[str, ...] = (
     "доступ ограничен",
     "доступ к запрашиваемому ресурсу",
     "решению роскомнадзора",
     "решением суда",
-    "по решению",
     "заблокирован",
-    "blocked by",
-    "rkn.gov.ru",
+    "blocked by roskomnadzor",
+    "blocked by rkn",
+    "rkn.gov.ru/org/register",
     "единый реестр",
     "запрещен",
 )
