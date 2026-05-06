@@ -16,6 +16,23 @@ class Verdict(str, Enum):
     UNKNOWN = "UNKNOWN"
 
 
+class Confidence(str, Enum):
+    """How confident we are in a verdict.
+
+    HIGH   - two independent signals confirm the diagnosis (e.g. DNS poisoning
+             confirmed by DoH returning a different IP, or an explicit HTTP 451,
+             or a known stub-page marker in the body)
+    MEDIUM - a known censorship pattern matches, but a single signal can't
+             rule out a server-side issue or a flaky network (e.g. TCP RST,
+             TLS handshake aborted on ClientHello)
+    LOW    - symptom is ambiguous (timeout, generic failure) and could be
+             caused by anything from DPI to a flaky uplink
+    """
+    HIGH = "HIGH"
+    MEDIUM = "MEDIUM"
+    LOW = "LOW"
+
+
 BLOCKED_VERDICTS: frozenset[Verdict] = frozenset({
     Verdict.DNS_BLOCK,
     Verdict.TCP_RESET,
@@ -31,6 +48,7 @@ class CheckResult:
     url: str
 
     verdict: Verdict = Verdict.UNKNOWN
+    confidence: Confidence = Confidence.LOW
     notes: list[str] = field(default_factory=list)
 
     sys_ip: Optional[str] = None
@@ -54,4 +72,5 @@ class CheckResult:
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["verdict"] = self.verdict.value
+        d["confidence"] = self.confidence.value
         return d

@@ -10,7 +10,7 @@ import requests
 from . import dns as dns_mod
 from . import http as http_mod
 from . import network
-from .models import CheckResult, Verdict
+from .models import CheckResult, Confidence, Verdict
 
 logger = logging.getLogger(__name__)
 
@@ -36,19 +36,29 @@ def check_url(name: str, url: str, timeout: float = 5.0) -> CheckResult:
 
     if res.sys_ip is None and res.doh_ip is not None:
         res.verdict = Verdict.DNS_BLOCK
+        res.confidence = Confidence.HIGH
         res.dns_error = "system resolver failed, DoH succeeded"
-        res.notes.append("system DNS doesn't resolve, DoH does — DNS poisoning")
+        res.notes.append(
+            "system DNS doesn't resolve, DoH does — consistent with DNS poisoning"
+        )
         return res
 
     if res.sys_ip is None and res.doh_ip is None:
         res.verdict = Verdict.DOWN
+        res.confidence = Confidence.LOW
         res.dns_error = "domain not resolved anywhere"
-        res.notes.append("domain doesn't resolve via system DNS or DoH")
+        res.notes.append(
+            "domain doesn't resolve via system DNS or DoH — could be NXDOMAIN, "
+            "downed authoritative server, or DNS-level block"
+        )
         return res
 
     if res.sys_ip and res.doh_ip and res.sys_ip != res.doh_ip:
         res.dns_mismatch = True
-        res.notes.append(f"DNS mismatch: sys={res.sys_ip} vs doh={res.doh_ip}")
+        res.notes.append(
+            f"DNS mismatch: sys={res.sys_ip} vs doh={res.doh_ip} "
+            "(may indicate transparent DNS rewriting)"
+        )
 
     res.tcp_ok, res.tcp_time_ms, res.tcp_error = network.check_tcp(
         host, timeout=timeout
@@ -56,12 +66,21 @@ def check_url(name: str, url: str, timeout: float = 5.0) -> CheckResult:
     if not res.tcp_ok:
         if res.tcp_error == "timeout":
             res.verdict = Verdict.TIMEOUT
-            res.notes.append("TCP timeout — port 443 unreachable")
+            res.confidence = Confidence.LOW
+            res.notes.append(
+                "TCP timeout on port 443 — could be IP block, route loss, "
+                "or upstream congestion"
+            )
         elif "reset" in (res.tcp_error or ""):
             res.verdict = Verdict.TCP_RESET
-            res.notes.append("TCP RST — IP-level block")
+            res.confidence = Confidence.MEDIUM
+            res.notes.append(
+                "TCP RST received — pattern matches RST injection by a "
+                "middlebox, but a busy server can also send RST"
+            )
         else:
             res.verdict = Verdict.DOWN
+            res.confidence = Confidence.LOW
             res.notes.append(f"TCP failed: {res.tcp_error}")
         return res
 
@@ -75,12 +94,21 @@ def check_url(name: str, url: str, timeout: float = 5.0) -> CheckResult:
         err = (res.tls_error or "").lower()
         if "reset" in err:
             res.verdict = Verdict.TLS_BLOCK
-            res.notes.append("TLS reset — DPI cutting on SNI (typical RKN/TSPU)")
+            res.confidence = Confidence.MEDIUM
+            res.notes.append(
+                "TLS reset right after ClientHello — consistent with SNI-based "
+                "DPI filtering (typical TSPU/RKN signature), not proof"
+            )
         elif "timeout" in err:
             res.verdict = Verdict.TLS_BLOCK
-            res.notes.append("TLS timeout — silent drop after ClientHello")
+            res.confidence = Confidence.MEDIUM
+            res.notes.append(
+                "TLS handshake silently dropped — consistent with DPI filtering "
+                "by ClientHello, but could be a flaky path"
+            )
         else:
             res.verdict = Verdict.TLS_BLOCK
+            res.confidence = Confidence.LOW
             res.notes.append(f"TLS error: {res.tls_error}")
         return res
 
@@ -91,22 +119,29 @@ def check_url(name: str, url: str, timeout: float = 5.0) -> CheckResult:
 
     if probe.timed_out:
         res.verdict = Verdict.TIMEOUT
+        res.confidence = Confidence.LOW
         return res
     if probe.error:
         res.verdict = Verdict.DOWN
+        res.confidence = Confidence.LOW
         return res
 
     if res.status_code == 451:
         res.verdict = Verdict.HTTP_STUB
-        res.notes.append("HTTP 451 — Unavailable For Legal Reasons")
+        res.confidence = Confidence.HIGH
+        res.notes.append("HTTP 451 — Unavailable For Legal Reasons (explicit)")
         return res
 
     if http_mod.looks_like_stub(probe.body_snippet):
         res.verdict = Verdict.HTTP_STUB
-        res.notes.append("response body matches an ISP stub-page marker")
+        res.confidence = Confidence.HIGH
+        res.notes.append(
+            "response body matches a known ISP stub-page marker"
+        )
         return res
 
     res.verdict = Verdict.OK
+    res.confidence = Confidence.HIGH
     return res
 
 
