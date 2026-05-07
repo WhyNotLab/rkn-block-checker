@@ -111,6 +111,12 @@ def _run_streaming(
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Принудительно переключаем stdout/stderr на UTF-8 (нужно для Windows cp1252)
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
     parser = _build_parser()
     args = parser.parse_args(argv)
     _setup_logging(args.verbose)

@@ -27,12 +27,32 @@ def get_self_info(timeout: float = 5.0) -> dict:
     return {}
 
 
+def _extract_451_reason(body: str) -> str:
+    """Извлекает короткую причину из тела 451-ответа."""
+    import re
+    # <title>...</title>
+    m = re.search(r"<title[^>]*>([^<]{3,80})</title>", body, re.I)
+    if m:
+        text = m.group(1).strip()
+        if text.lower() not in ("451", "unavailable", "blocked", "error"):
+            return text
+    # meta description
+    m = re.search(r'<meta[^>]+name=["\']description["\'][^>]+content=["\'](.[^"\']{3,120})["\']', body, re.I)
+    if m:
+        return m.group(1).strip()
+    # первый значимый текст в <p> или <h1>
+    m = re.search(r"<(?:h1|p)[^>]*>\s*([^<]{10,120})\s*</(?:h1|p)>", body, re.I)
+    if m:
+        return m.group(1).strip()
+    return ""
+
+
 def check_url(name: str, url: str, timeout: float = 5.0) -> CheckResult:
     host = urlparse(url).hostname or url
     res = CheckResult(name=name, url=url)
 
     res.sys_ip = dns_mod.resolve_system(host)
-    res.doh_ip = dns_mod.resolve_doh(host, timeout=timeout)
+    res.doh_ip, res.doh_endpoint, res.doh_time_ms = dns_mod.resolve_doh(host, timeout=timeout)
 
     if res.sys_ip is None and res.doh_ip is not None:
         res.verdict = Verdict.DNS_BLOCK
@@ -64,6 +84,10 @@ def check_url(name: str, url: str, timeout: float = 5.0) -> CheckResult:
         res.notes.append(
             "DoH lookup failed — control comparison unavailable, "
             "DNS poisoning cannot be ruled out"
+        )
+    elif res.doh_ip is not None and res.doh_endpoint is not None:
+        res.notes.append(
+            f"DoH: {res.doh_endpoint} → {res.doh_ip} ({res.doh_time_ms:.0f}ms)"
         )
 
     res.tcp_ok, res.tcp_time_ms, res.tcp_error = network.check_tcp(
@@ -135,7 +159,11 @@ def check_url(name: str, url: str, timeout: float = 5.0) -> CheckResult:
     if res.status_code == 451:
         res.verdict = Verdict.HTTP_STUB
         res.confidence = Confidence.HIGH
-        res.notes.append("HTTP 451 — Unavailable For Legal Reasons (explicit)")
+        reason = _extract_451_reason(probe.body_raw)
+        note = "HTTP 451 — сайт сообщает: недоступен по юридическим причинам"
+        if reason:
+            note += f" ({reason})"
+        res.notes.append(note)
         return res
 
     if http_mod.looks_like_stub(probe.body_snippet):

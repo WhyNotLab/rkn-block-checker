@@ -43,6 +43,12 @@ BLACK_URLS: dict[str, str] = {
     "bbc-russian":  "https://www.bbc.com/russian",
     "meduza":       "https://meduza.io/",
     "dw-russian":   "https://www.dw.com/ru/",
+    "cloudflare":   "https://www.cloudflare.com/",
+    "amazon":       "https://www.amazon.com/",
+    "akamai":       "https://www.akamai.com/",
+    "aws":          "https://aws.amazon.com/",
+    "ovh":          "https://www.ovhcloud.com/",
+    "hetzner":      "https://www.hetzner.com/",
 }
 
 

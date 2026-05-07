@@ -20,6 +20,7 @@ class HttpProbe:
     status_code: Optional[int] = None
     elapsed_ms: Optional[float] = None
     body_snippet: str = ""
+    body_raw: str = ""
     error: Optional[str] = None
     timed_out: bool = False
 
@@ -32,10 +33,12 @@ def fetch(url: str, timeout: float = DEFAULT_TIMEOUT) -> HttpProbe:
             allow_redirects=True,
             headers={"User-Agent": DEFAULT_USER_AGENT},
         )
+        body = r.text[:BODY_SNIPPET_LEN]
         return HttpProbe(
             status_code=r.status_code,
             elapsed_ms=r.elapsed.total_seconds() * 1000,
-            body_snippet=r.text[:BODY_SNIPPET_LEN].lower(),
+            body_snippet=body.lower(),
+            body_raw=body,
         )
     except requests.exceptions.Timeout:
         return HttpProbe(error="timeout", timed_out=True)

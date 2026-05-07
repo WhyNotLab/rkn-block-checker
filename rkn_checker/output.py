@@ -33,23 +33,26 @@ def _label_for(verdict: Verdict, confidence: Confidence) -> tuple[str, str]:
     if verdict == Verdict.OK:
         return C.GREEN, "✓ OK"
     if verdict == Verdict.DOWN:
-        return C.GRAY, "· DOWN"
+        return C.GRAY, "· DOWN (сервер недоступен)"
     if verdict == Verdict.UNKNOWN:
-        return C.GRAY, "? UNKNOWN"
+        return C.GRAY, "? UNKNOWN (причина неясна)"
 
-    base = {
-        Verdict.DNS_BLOCK: "DNS",
-        Verdict.TCP_RESET: "TCP RESET",
-        Verdict.TLS_BLOCK: "TLS DPI",
-        Verdict.HTTP_STUB: "HTTP STUB",
-        Verdict.TIMEOUT:   "TIMEOUT",
-    }.get(verdict, verdict.value)
+    # (пояснение, что именно режет трафик)
+    base, ru = {
+        Verdict.DNS_BLOCK: ("DNS_BLOCK",  "провайдер подменяет DNS"),
+        Verdict.TCP_RESET: ("TCP_RESET",  "провайдер рвёт TCP-соединение"),
+        Verdict.TLS_BLOCK: ("TLS DPI",    "DPI режет по SNI в TLS"),
+        Verdict.HTTP_STUB: ("HTTP_STUB",  "провайдер подставляет заглушку"),
+        Verdict.TIMEOUT:   ("TIMEOUT",    "IP заблокирован / нет маршрута"),
+    }.get(verdict, (verdict.value, ""))
+
+    label = f"{base} ({ru})" if ru else base
 
     if confidence == Confidence.HIGH:
-        return C.RED, f"✗ {base}"
+        return C.RED, f"✗ {label}"
     if confidence == Confidence.MEDIUM:
-        return C.YELLOW, f"~ LIKELY {base}"
-    return C.GRAY, f"? {base}?"
+        return C.YELLOW, f"~ {label}?"
+    return C.GRAY, f"? {label}?"
 
 
 def print_header(info: dict) -> None:
@@ -69,10 +72,10 @@ def print_header(info: dict) -> None:
 def print_section(title: str) -> None:
     print(f"\n{C.BOLD}{title}{C.RESET}")
     print(
-        f"  {C.DIM}{'name':<14}{'verdict':<22}"
+        f"  {C.DIM}{'name':<14}{'verdict':<42}"
         f"{'TCP':>8}{'TLS':>8}{'PLT':>8}  {'status':<6}{C.RESET}"
     )
-    print(f"  {C.DIM}{'-' * 68}{C.RESET}")
+    print(f"  {C.DIM}{'-' * 88}{C.RESET}")
 
 
 def print_result(r: CheckResult) -> None:
@@ -84,7 +87,7 @@ def print_result(r: CheckResult) -> None:
     plt = f"{r.plt_ms:.0f}ms" if r.plt_ms is not None else "-"
 
     name_col = r.name[:14].ljust(14)
-    label_col = label[:22].ljust(22)
+    label_col = label[:42].ljust(42)
     print(
         f"  {name_col}"
         f"{color}{label_col}{C.RESET}"
